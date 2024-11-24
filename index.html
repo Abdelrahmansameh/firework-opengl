@@ -306,6 +306,16 @@
             <div class="panel">
                 <h2 class="panel-title">Firework Crafting</h2>
 
+                <div class="crafting-option">
+                    <label>Trail Effect:</label>
+                    <select id="recipe-trail-effect">
+                        <option value="fade">Fade</option>
+                        <option value="sparkle">Sparkle</option>
+                        <option value="rainbow">Rainbow Gradient</option>
+                        <option value="comet">Comet Tail</option>
+                    </select>
+                </div>
+
                 <!-- Components List -->
                 <div id="components-list"></div>
                 <button id="add-component">Add Component</button>
@@ -368,16 +378,16 @@
             rocketSize: 0.5,          // Size of the firework rocket
             minExplosionHeightPercent: 0.4, // Minimum explosion height (40% of the view)
             maxExplosionHeightPercent: 0.9,  // Maximum explosion height (90% of the view)
-			patternGravities: {       // Different gravity per pattern
-			spherical: 9.81,
-			ring: 8.0,
-			heart: 6.0,
-			star: 7.0,
-			burst: 9.81,
-			palm: 5.0,
-			willow: 3.0,
-			default: 9.81
-			}
+            patternGravities: {       // Different gravity per pattern
+                spherical: 9.81,
+                ring: 8.0,
+                heart: 6.0,
+                star: 7.0,
+                burst: 9.81,
+                palm: 5.0,
+                willow: 3.0,
+                default: 9.81
+            }
         };
 
         class FireworkGame {
@@ -390,6 +400,7 @@
 
                 this.recipes = [];
                 this.currentRecipeComponents = [];
+                this.currentTrailEffect = 'fade'; // Default trail effect for the recipe
                 this.fireworkCount = parseInt(localStorage.getItem('fireworkCount')) || 0;
                 this.autoLauncherLevel = parseInt(localStorage.getItem('autoLauncherLevel')) || 0;
                 this.autoLauncherCost = parseInt(localStorage.getItem('autoLauncherCost')) || 10;
@@ -456,7 +467,7 @@
                 this.clock = new THREE.Clock();
 
                 window.addEventListener('resize', this.onWindowResize.bind(this), false);
-            }
+				}
 
             onWindowResize() {
                 this.camera.aspect = window.innerWidth / window.innerHeight;
@@ -487,8 +498,7 @@
                         pattern: 'spherical',
                         color: '#ff0000',
                         size: 1.0,
-                        lifetime: 1.2,
-                        trailEffect: 'fade'
+                        lifetime: 1.2
                     });
                     this.updateComponentsList();
                     this.saveCurrentRecipeComponents();
@@ -525,6 +535,11 @@
 
                 document.getElementById('incremental-tab').addEventListener('click', () => {
                     this.toggleTab('incremental');
+                });
+
+                document.getElementById('recipe-trail-effect').addEventListener('change', (e) => {
+                    this.currentTrailEffect = e.target.value;
+                    this.saveCurrentRecipeComponents();
                 });
 
                 this.showTab('crafting');
@@ -626,7 +641,8 @@
                 document.getElementById('firework-count').textContent = this.fireworkCount;
                 document.getElementById('auto-launcher-level').textContent = this.autoLauncherLevel;
                 document.getElementById('auto-launcher-cost').textContent = this.autoLauncherCost;
-                document.getElementById('sparkles-count').textContent = this.sparkles; // Update sparkles counter
+                document.getElementById('sparkles-count').textContent = this.sparkles;
+                document.getElementById('recipe-trail-effect').value = this.currentTrailEffect;
             }
 
             update(deltaTime) {
@@ -648,6 +664,7 @@
                 localStorage.setItem('autoLauncherCost', this.autoLauncherCost);
                 localStorage.setItem('sparkles', this.sparkles);
                 localStorage.setItem('fireworkRecipes', JSON.stringify(this.recipes));
+                localStorage.setItem('currentTrailEffect', this.currentTrailEffect);
                 // Save auto-launchers positions
                 localStorage.setItem('autoLaunchers', JSON.stringify(this.autoLaunchers.map(launcher => ({ xPercent: launcher.xPercent, accumulator: launcher.accumulator }))));
                 // Save current recipe components
@@ -703,15 +720,15 @@
                 }
                 const bounds = this.getViewBounds();
                 const y = bounds.minY; // Bottom of the screen
-                this.launch(x, y, this.currentRecipeComponents);
+                this.launch(x, y, this.currentRecipeComponents, this.currentTrailEffect);
                 this.fireworkCount++;
                 this.sparkles++;
                 this.saveProgress();
                 this.updateUI();
             }
 
-            launch(x, y, components) {
-                const firework = new Firework(x, y, components, this.scene, this.camera);
+            launch(x, y, components, trailEffect) {
+                const firework = new Firework(x, y, components, this.scene, this.camera, trailEffect);
                 this.fireworks.push(firework);
             }
 
@@ -759,12 +776,12 @@
                 this.autoLauncherCost = 10;
                 this.sparkles = 0;
                 this.recipes = [];
+                this.currentTrailEffect = 'fade';
                 this.currentRecipeComponents = [{
                     pattern: 'spherical',
                     color: '#ff0000',
                     size: 1.0,
-                    lifetime: 1.2,
-                    trailEffect: 'fade'
+                    lifetime: 1.2
                 }];
                 // Remove auto-launchers from scene
                 this.autoLaunchers.forEach(launcher => {
@@ -817,15 +834,6 @@
                             <input type="color" class="color-input" data-index="${index}" value="${component.color}">
                         </div>
                         <div class="crafting-option">
-                            <label>Trail Effect:</label>
-                            <select class="trail-effect-select" data-index="${index}">
-                                <option value="fade">Fade</option>
-                                <option value="sparkle">Sparkle</option>
-                                <option value="rainbow">Rainbow Gradient</option>
-                                <option value="comet">Comet Tail</option>
-                            </select>
-                        </div>
-                        <div class="crafting-option">
                             <label>Shell Size (0.5 - 2):</label>
                             <input type="range" class="size-select" data-index="${index}" min="0.5" max="2" step="0.1" value="${component.size}">
                             <span class="size-value">${component.size}</span>
@@ -837,8 +845,7 @@
                         </div>
                         <button class="remove-component" data-index="${index}">Remove Component</button>
                     `;
-
-                    componentsList.appendChild(componentDiv);
+					componentsList.appendChild(componentDiv);
 
                     // Set the values of the selects
                     const patternSelect = componentDiv.querySelector('.pattern-select');
@@ -846,9 +853,6 @@
 
                     const colorInput = componentDiv.querySelector('.color-input');
                     colorInput.value = component.color;
-
-                    const trailEffectSelect = componentDiv.querySelector('.trail-effect-select');
-                    trailEffectSelect.value = component.trailEffect;
 
                     const sizeSelect = componentDiv.querySelector('.size-select');
                     const sizeValue = componentDiv.querySelector('.size-value');
@@ -866,12 +870,6 @@
                     colorInput.addEventListener('input', (e) => {
                         const idx = e.target.getAttribute('data-index');
                         this.currentRecipeComponents[idx].color = e.target.value;
-                        this.saveCurrentRecipeComponents();
-                    });
-
-                    trailEffectSelect.addEventListener('change', (e) => {
-                        const idx = e.target.getAttribute('data-index');
-                        this.currentRecipeComponents[idx].trailEffect = e.target.value;
                         this.saveCurrentRecipeComponents();
                     });
 
@@ -901,10 +899,12 @@
 
             saveCurrentRecipeComponents() {
                 localStorage.setItem('currentRecipeComponents', JSON.stringify(this.currentRecipeComponents));
+                localStorage.setItem('currentTrailEffect', this.currentTrailEffect);
             }
 
             loadCurrentRecipe() {
                 const savedRecipeComponents = localStorage.getItem('currentRecipeComponents');
+                const savedTrailEffect = localStorage.getItem('currentTrailEffect');
                 if (savedRecipeComponents) {
                     this.currentRecipeComponents = JSON.parse(savedRecipeComponents);
                 } else {
@@ -912,9 +912,11 @@
                         pattern: 'spherical',
                         color: '#ff0000',
                         size: 1.0,
-                        lifetime: 1.2,
-                        trailEffect: 'fade'
+                        lifetime: 1.2
                     }];
+                }
+                if (savedTrailEffect) {
+                    this.currentTrailEffect = savedTrailEffect;
                 }
             }
 
@@ -924,7 +926,8 @@
                     return;
                 }
                 const recipe = {
-                    components: this.currentRecipeComponents.map(component => ({ ...component }))
+                    components: this.currentRecipeComponents.map(component => ({ ...component })),
+                    trailEffect: this.currentTrailEffect
                 };
                 this.recipes.push(recipe);
                 localStorage.setItem('fireworkRecipes', JSON.stringify(this.recipes));
@@ -933,7 +936,6 @@
             }
 
             eraseAllRecipes() {
-                // Implement in-page confirmation if needed
                 if (confirm("Are you sure you want to erase all saved recipes?")) {
                     this.recipes = [];
                     localStorage.removeItem('fireworkRecipes');
@@ -959,11 +961,11 @@
                 list.innerHTML = this.recipes.map((recipe, index) => `
                     <div class="recipe-card" onclick="game.selectRecipe(${index})" style="cursor: pointer; padding: 10px; border: 1px solid #34495e; border-radius: 5px; margin-bottom: 10px; background: #2a2f3a;">
                         <strong>Recipe ${index + 1}:</strong><br>
+                        <div>Trail Effect: ${this.getReadableTrailEffect(recipe.trailEffect)}</div>
                         ${recipe.components.map((component, cIndex) => `
                             <div>
                                 <strong>Component ${cIndex + 1}:</strong><br>
                                 Pattern: ${component.pattern}<br>
-                                Trail Effect: ${this.getReadableTrailEffect(component.trailEffect)}<br>
                                 Size: ${component.size}<br>
                                 Lifetime: ${component.lifetime} s<br>
                                 <div class="color-preview" style="width: 20px; height: 20px; background-color: ${component.color}; border: 1px solid #fff; display: inline-block;"></div>
@@ -990,18 +992,21 @@
 
             selectRecipe(index) {
                 this.currentRecipeComponents = this.recipes[index].components.map(component => ({ ...component }));
+                this.currentTrailEffect = this.recipes[index].trailEffect;
                 this.updateComponentsList();
+                this.updateUI();
                 this.saveCurrentRecipeComponents();
                 this.showNotification(`Loaded Recipe ${index + 1}`);
             }
         }
 
         class Firework {
-            constructor(x, y, components, scene, camera) {
+            constructor(x, y, components, scene, camera, trailEffect) {
                 this.scene = scene;
                 this.camera = camera;
                 this.rocket = this.createRocket(x, y);
                 this.components = components;
+                this.trailEffect = trailEffect;
                 this.trailParticles = [];
                 this.exploded = false;
                 this.alive = true;
@@ -1027,81 +1032,204 @@
             }
 
             update(delta) {
-                if (!this.exploded) {
-                    // Move rocket upwards
-                    this.rocket.position.y += FIREWORK_CONFIG.ascentSpeed * delta;
+				if (!this.exploded) {
+					// Pre-explosion update (rocket ascending)
+					this.rocket.position.y += FIREWORK_CONFIG.ascentSpeed * delta;
+					this.createTrailParticle(this.rocket.position.x, this.rocket.position.y);
 
-                    // Create trail particle
-                    this.createTrailParticle(this.rocket.position.x, this.rocket.position.y);
+					// Update only trail particles with trail effects
+					const now = Date.now();
+					this.trailParticles.forEach((particle, index) => {
+						const age = (now - particle.createdAt) / 500;
+						
+						if (age >= 1) return;
 
-                    // Remove old trail particles
-                    if (this.trailParticles.length > FIREWORK_CONFIG.trailLength) {
-                        const oldParticle = this.trailParticles.shift();
-                        this.scene.remove(oldParticle);
-                    }
+						switch (this.trailEffect) {
+							case 'sparkle':
+								particle.mesh.material.size = (0.3 + Math.random() * 0.3) * (1 - age);
+								particle.mesh.material.opacity = particle.initialOpacity * (1 - age);
+								break;
 
-                    // Check if reached target height
-                    if (this.rocket.position.y >= this.targetY) {
-                        // Explode
-                        this.explode();
-                    }
-                } else {
-                    // Update explosion particles
-                    this.alive = false;
-                    this.particleGroups.forEach(group => {
+							case 'rainbow':
+								const hue = ((now * 0.001) + index * 0.1) % 1;
+								particle.color.setHSL(hue, 1, 0.5);
+								particle.mesh.material.color = particle.color;
+								particle.mesh.material.opacity = particle.initialOpacity * (1 - age);
+								break;
+
+							case 'comet':
+								particle.scale = Math.max(0.2, particle.scale * 0.95);
+								particle.mesh.scale.set(particle.scale, particle.scale, particle.scale);
+								particle.mesh.material.opacity = particle.initialOpacity * (1 - age);
+								particle.mesh.position.y += delta * 2;
+								break;
+
+							case 'fade':
+							default:
+								particle.mesh.material.opacity = particle.initialOpacity * (1 - age);
+								break;
+						}
+					});
+
+					// Clean up old trail particles
+					for (let i = this.trailParticles.length - 1; i >= 0; i--) {
+						const particle = this.trailParticles[i];
+						if (Date.now() - particle.createdAt > 500) {
+							this.scene.remove(particle.mesh);
+							this.trailParticles.splice(i, 1);
+						}
+					}
+
+					if (this.rocket.position.y >= this.targetY) {
+						this.explode();
+					}
+				} else {
+					// Post-explosion update (explosion particles)
+					this.alive = false;
+					this.particleGroups.forEach(group => {
+						const positions = group.particleSystem.geometry.attributes.position.array;
+
+						for (let i = 0; i < group.velocities.length; i++) {
+							if (group.lifetimes[i] > 0) {
+								group.velocities[i].y -= group.gravities[i] * delta;
+								positions[i * 3] += group.velocities[i].x * delta;
+								positions[i * 3 + 1] += group.velocities[i].y * delta;
+								group.lifetimes[i] -= delta;
+								this.alive = true;
+							}
+						}
+
+						group.particleSystem.geometry.attributes.position.needsUpdate = true;
+						const alpha = Math.max(Math.min(group.lifetimes[0] / group.initialLifetime, 1), 0);
+						group.particleSystem.material.opacity = alpha;
+
+						if (!this.alive) {
+							this.scene.remove(group.particleSystem);
+						}
+					});
+				}
+            }
+
+            updateTrailEffect(group, delta) {
+                switch (this.trailEffect) {
+                    case 'sparkle':
+                        group.particleSystem.material.size = FIREWORK_CONFIG.particleSize * 
+                            (1 + Math.random() * Math.sin(Date.now() * 0.01));
+                        break;
+                    case 'rainbow':
+                        const hue = (Date.now() * 0.001) % 1;
+                        group.particleSystem.material.color.setHSL(hue, 1, 0.5);
+                        break;
+                    case 'comet':
                         const positions = group.particleSystem.geometry.attributes.position.array;
-
                         for (let i = 0; i < group.velocities.length; i++) {
                             if (group.lifetimes[i] > 0) {
-                                // Update velocity with gravity
-                                group.velocities[i].y -= group.gravities[i] * delta;
-
-                                // Update position
-                                positions[i * 3] += group.velocities[i].x * delta;
-                                positions[i * 3 + 1] += group.velocities[i].y * delta;
-
-                                // Update lifetime
-                                group.lifetimes[i] -= delta;
-
-                                this.alive = true;
+                                const trail = new THREE.Vector3(
+                                    positions[i * 3] - group.velocities[i].x * delta * 2,
+                                    positions[i * 3 + 1] - group.velocities[i].y * delta * 2,
+                                    0
+                                );
+                                this.createTrailParticle(trail.x, trail.y);
                             }
                         }
-
-                        // Mark position attribute as needing update
-                        group.particleSystem.geometry.attributes.position.needsUpdate = true;
-
-                        // Update opacity based on lifetime
-                        const alpha = Math.max(Math.min(group.lifetimes[0] / group.initialLifetime, 1), 0);
-                        group.particleSystem.material.opacity = alpha;
-
-                        if (!this.alive) {
-                            this.scene.remove(group.particleSystem);
-                        }
-                    });
+                        break;
                 }
             }
 
-            createTrailParticle(x, y) {
-                const geometry = new THREE.SphereGeometry(0.2, 4, 4);
-                const material = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
-                const particle = new THREE.Mesh(geometry, material);
-                particle.position.set(x, y, 0);
-                this.scene.add(particle);
-                this.trailParticles.push(particle);
+			createTrailParticle(x, y) {
+                let material;
+                switch (this.trailEffect) {
+                    case 'sparkle':
+                        material = new THREE.PointsMaterial({
+                            color: 0xffffff,
+                            size: 0.3 + Math.random() * 0.3,
+                            transparent: true,
+                            opacity: 0.8,
+                            blending: THREE.AdditiveBlending
+                        });
+                        const geometry = new THREE.BufferGeometry();
+                        const positions = new Float32Array([x, y, 0]);
+                        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                        const particle = new THREE.Points(geometry, material);
+                        this.scene.add(particle);
+                        this.trailParticles.push({
+                            mesh: particle,
+                            createdAt: Date.now(),
+                            initialOpacity: 0.8
+                        });
+                        break;
 
-                // Fade out and remove after some time
-                setTimeout(() => {
-                    this.scene.remove(particle);
-                }, 500);
+                    case 'rainbow':
+                        const hue = (Date.now() * 0.001) % 1;
+                        const color = new THREE.Color();
+                        color.setHSL(hue, 1, 0.5);
+                        material = new THREE.MeshBasicMaterial({
+                            color: color,
+                            transparent: true,
+                            opacity: 0.8,
+                            blending: THREE.AdditiveBlending
+                        });
+                        const sphere = new THREE.SphereGeometry(0.2, 4, 4);
+                        const mesh = new THREE.Mesh(sphere, material);
+                        mesh.position.set(x, y, 0);
+                        this.scene.add(mesh);
+                        this.trailParticles.push({
+                            mesh: mesh,
+                            createdAt: Date.now(),
+                            initialOpacity: 0.8,
+                            color: color.clone()
+                        });
+                        break;
+
+                    case 'comet':
+                        material = new THREE.MeshBasicMaterial({
+                            color: 0xffaa00,
+                            transparent: true,
+                            opacity: 0.8,
+                            blending: THREE.AdditiveBlending
+                        });
+                        const cometGeometry = new THREE.SphereGeometry(0.3, 4, 4);
+                        const cometMesh = new THREE.Mesh(cometGeometry, material);
+                        cometMesh.position.set(x, y, 0);
+                        this.scene.add(cometMesh);
+                        this.trailParticles.push({
+                            mesh: cometMesh,
+                            createdAt: Date.now(),
+                            initialOpacity: 0.8,
+                            scale: 1.0
+                        });
+                        break;
+
+                    case 'fade':
+                    default:
+                        material = new THREE.MeshBasicMaterial({
+                            color: 0xffffff,
+                            transparent: true,
+                            opacity: 0.8,
+                            blending: THREE.AdditiveBlending
+                        });
+                        const defaultGeometry = new THREE.SphereGeometry(0.2, 4, 4);
+                        const defaultMesh = new THREE.Mesh(defaultGeometry, material);
+                        defaultMesh.position.set(x, y, 0);
+                        this.scene.add(defaultMesh);
+                        this.trailParticles.push({
+                            mesh: defaultMesh,
+                            createdAt: Date.now(),
+                            initialOpacity: 0.8
+                        });
+                        break;
+                }
             }
 
             explode() {
                 // Remove rocket and trail particles
                 this.scene.remove(this.rocket);
-                this.trailParticles.forEach(particle => {
-                    this.scene.remove(particle);
-                });
-                this.trailParticles = [];
+				this.trailParticles.forEach(particle => {
+					if (particle.mesh) {
+						this.scene.remove(particle.mesh);
+					}
+				});
+				this.trailParticles = [];
 
                 // Create explosion particles
                 this.particleGroups = [];
@@ -1138,7 +1266,7 @@
 
                 let i = 0; // Index for positions and velocities arrays
 
-				const gravity = FIREWORK_CONFIG.patternGravities[recipe.pattern] || FIREWORK_CONFIG.patternGravities.default;
+                const gravity = FIREWORK_CONFIG.patternGravities[recipe.pattern] || FIREWORK_CONFIG.patternGravities.default;
 
                 switch (recipe.pattern) {
                     case 'spherical':
@@ -1176,11 +1304,11 @@
                         break;
 
                     case 'heart':
-						const heartScale = 1; // Adjusted scaling factor for compactness
+                        const heartScale = 1; // Adjusted scaling factor for compactness
                         for (i = 0; i < particleCount; i++) {
                             const t = (i / particleCount) * Math.PI * 2;
-							const xOffset = heartScale * (16 * Math.pow(Math.sin(t), 3));
-							const yOffset = heartScale * (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+const xOffset = heartScale * (16 * Math.pow(Math.sin(t), 3));
+                            const yOffset = heartScale * (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
                             const angle = Math.atan2(yOffset, xOffset);
                             const magnitude = speed * Math.sqrt(xOffset * xOffset + yOffset * yOffset) * 0.05;
                             const vx = Math.cos(angle) * magnitude;
@@ -1228,7 +1356,7 @@
                             positions[i * 3 + 2] = 0;
 
                             velocities[i] = new THREE.Vector3(vx, vy, 0);
-                            gravities[i] =gravity;
+                            gravities[i] = gravity;
                             lifetimes[i] = recipe.lifetime;
                         }
                         break;
@@ -1310,8 +1438,7 @@
                     velocities: velocities,
                     gravities: gravities,
                     lifetimes: lifetimes,
-                    initialLifetime: recipe.lifetime,
-                    trailEffect: recipe.trailEffect
+                    initialLifetime: recipe.lifetime
                 };
             }
         }
