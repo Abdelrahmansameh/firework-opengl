@@ -367,7 +367,17 @@
             trailLength: 10,          // Length of the rocket trail
             rocketSize: 0.5,          // Size of the firework rocket
             minExplosionHeightPercent: 0.4, // Minimum explosion height (40% of the view)
-            maxExplosionHeightPercent: 0.9  // Maximum explosion height (90% of the view)
+            maxExplosionHeightPercent: 0.9,  // Maximum explosion height (90% of the view)
+			patternGravities: {       // Different gravity per pattern
+			spherical: 9.81,
+			ring: 8.0,
+			heart: 6.0,
+			star: 7.0,
+			burst: 9.81,
+			palm: 5.0,
+			willow: 3.0,
+			default: 9.81
+			}
         };
 
         class FireworkGame {
@@ -1128,6 +1138,8 @@
 
                 let i = 0; // Index for positions and velocities arrays
 
+				const gravity = FIREWORK_CONFIG.patternGravities[recipe.pattern] || FIREWORK_CONFIG.patternGravities.default;
+
                 switch (recipe.pattern) {
                     case 'spherical':
                         for (i = 0; i < particleCount; i++) {
@@ -1141,7 +1153,7 @@
                             positions[i * 3 + 2] = 0;
 
                             velocities[i] = new THREE.Vector3(vx, vy, 0);
-                            gravities[i] = FIREWORK_CONFIG.gravity;
+                            gravities[i] = gravity;
                             lifetimes[i] = recipe.lifetime;
                         }
                         break;
@@ -1158,7 +1170,7 @@
                             positions[i * 3 + 2] = 0;
 
                             velocities[i] = new THREE.Vector3(vx, vy, 0);
-                            gravities[i] = FIREWORK_CONFIG.gravity;
+                            gravities[i] = gravity;
                             lifetimes[i] = recipe.lifetime;
                         }
                         break;
@@ -1179,7 +1191,7 @@
                             positions[i * 3 + 2] = 0;
 
                             velocities[i] = new THREE.Vector3(vx, vy, 0);
-                            gravities[i] = FIREWORK_CONFIG.gravity;
+                            gravities[i] = gravity;
                             lifetimes[i] = recipe.lifetime;
                         }
                         break;
@@ -1199,7 +1211,7 @@
                             positions[i * 3 + 2] = 0;
 
                             velocities[i] = new THREE.Vector3(vx, vy, 0);
-                            gravities[i] = FIREWORK_CONFIG.gravity;
+                            gravities[i] = gravity;
                             lifetimes[i] = recipe.lifetime;
                         }
                         break;
@@ -1216,7 +1228,7 @@
                             positions[i * 3 + 2] = 0;
 
                             velocities[i] = new THREE.Vector3(vx, vy, 0);
-                            gravities[i] = FIREWORK_CONFIG.gravity;
+                            gravities[i] =gravity;
                             lifetimes[i] = recipe.lifetime;
                         }
                         break;
@@ -1240,7 +1252,7 @@
                             positions[i * 3 + 2] = 0;
 
                             velocities[i] = new THREE.Vector3(vx, vy, 0);
-                            gravities[i] = FIREWORK_CONFIG.gravity * 3;
+                            gravities[i] = gravity;
                             lifetimes[i] = recipe.lifetime;
                         }
                         break;
@@ -1262,7 +1274,7 @@
                                 positions[i * 3 + 2] = 0;
 
                                 velocities[i] = new THREE.Vector3(vx, vy, 0);
-                                gravities[i] = FIREWORK_CONFIG.gravity * 0.5;
+                                gravities[i] = gravity;
                                 lifetimes[i] = recipe.lifetime;
 
                                 i++;
