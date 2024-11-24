@@ -359,7 +359,7 @@
     <script>
         // Global configuration
         const FIREWORK_CONFIG = {
-            baseSpeed: 100,           // Adjusted base speed
+            baseSpeed: 20,           // Adjusted base speed
             gravity: 9.81,            // Realistic gravity
             particleSize: 1.5,        // Base particle size
             particleDensity: 100,     // Base number of particles
@@ -370,13 +370,14 @@
             maxExplosionHeightPercent: 0.9  // Maximum explosion height (90% of the view)
         };
 
-        // Initialize the THREE.js scene
-        let scene, camera, renderer;
-        let fireworks = [];
-        let clock;
-
         class FireworkGame {
             constructor() {
+                this.scene = null;
+                this.camera = null;
+                this.renderer = null;
+                this.clock = null;
+                this.fireworks = [];
+
                 this.recipes = [];
                 this.currentRecipeComponents = [];
                 this.fireworkCount = parseInt(localStorage.getItem('fireworkCount')) || 0;
@@ -386,16 +387,20 @@
 
                 // Load auto-launchers
                 this.autoLaunchers = JSON.parse(localStorage.getItem('autoLaunchers')) || [];
-                // Initialize accumulators for each launcher
-                this.autoLaunchers.forEach(launcher => {
-                    launcher.accumulator = Math.random() * 5;
-                });
-
+                // Initialize accumulators for each launcher and create their meshes
                 this.isMobile = this.detectMobile();
                 this.adjustConfigurations();
 
                 // Initialize THREE.js first
                 this.initThreeJS();
+
+                // Now you can create auto-launcher meshes
+                this.autoLaunchers.forEach(launcher => {
+                    if (!launcher.accumulator) {
+                        launcher.accumulator = Math.random() * 5;
+                    }
+                    this.createAutoLauncherMesh(launcher);
+                });
 
                 // Now you can bind events
                 this.bindEvents();
@@ -420,34 +425,46 @@
             }
 
             initThreeJS() {
-                scene = new THREE.Scene();
+                this.scene = new THREE.Scene();
 
-                camera = new THREE.PerspectiveCamera(
+                this.camera = new THREE.PerspectiveCamera(
                     75,
                     window.innerWidth / window.innerHeight,
                     0.1,
                     1000
                 );
-                camera.position.z = 100;
+                this.camera.position.z = 100;
 
-                renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-                renderer.setPixelRatio(window.devicePixelRatio);
-                renderer.setSize(window.innerWidth, window.innerHeight);
-                renderer.setClearColor(0x000000, 1);
+                this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                this.renderer.setPixelRatio(window.devicePixelRatio);
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setClearColor(0x000000, 1);
 
                 const gameContainer = document.getElementById('game-container');
-                gameContainer.appendChild(renderer.domElement);
+                gameContainer.appendChild(this.renderer.domElement);
 
-                clock = new THREE.Clock();
+                this.clock = new THREE.Clock();
 
                 window.addEventListener('resize', this.onWindowResize.bind(this), false);
             }
 
             onWindowResize() {
-                camera.aspect = window.innerWidth / window.innerHeight;
-                camera.updateProjectionMatrix();
-                renderer.setSize(window.innerWidth, window.innerHeight);
-                renderer.setPixelRatio(window.devicePixelRatio);
+                this.camera.aspect = window.innerWidth / window.innerHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setPixelRatio(window.devicePixelRatio);
+
+                // Update auto-launcher positions
+                if (this.autoLaunchers && this.autoLaunchers.length > 0) {
+                    const bounds = this.getViewBounds();
+                    this.autoLaunchers.forEach(launcher => {
+                        const x = bounds.minX + launcher.xPercent * (bounds.maxX - bounds.minX);
+                        const y = bounds.minY + 5; // Adjust Y position to stay visible
+                        if (launcher.mesh) {
+                            launcher.mesh.position.set(x, y, 0);
+                        }
+                    });
+                }
             }
 
             adjustConfigurations() {
@@ -503,7 +520,7 @@
                 this.showTab('crafting');
 
                 // Use pointerdown event to handle both mouse and touch input
-                renderer.domElement.addEventListener('pointerdown', (e) => {
+                this.renderer.domElement.addEventListener('pointerdown', (e) => {
                     if (!this.isClickInsideUI(e)) {
                         e.preventDefault(); // Prevent any default behavior
                         const x = e.clientX;
@@ -534,21 +551,21 @@
                 mouse.y = - (y / window.innerHeight) * 2 + 1;
 
                 const raycaster = new THREE.Raycaster();
-                raycaster.setFromCamera(mouse, camera);
+                raycaster.setFromCamera(mouse, this.camera);
 
                 // Calculate the intersection point with the z = 0 plane
-                const t = - (camera.position.z) / raycaster.ray.direction.z;
+                const t = - (this.camera.position.z) / raycaster.ray.direction.z;
                 const worldPos = new THREE.Vector3();
-                worldPos.copy(raycaster.ray.direction).multiplyScalar(t).add(camera.position);
+                worldPos.copy(raycaster.ray.direction).multiplyScalar(t).add(this.camera.position);
 
                 return worldPos;
             }
 
             getViewBounds() {
-                const distance = camera.position.z;
-                const vFOV = camera.fov * Math.PI / 180; // Convert to radians
+                const distance = this.camera.position.z;
+                const vFOV = this.camera.fov * Math.PI / 180; // Convert to radians
                 const viewHeight = 2 * Math.tan(vFOV / 2) * distance;
-                const viewWidth = viewHeight * camera.aspect;
+                const viewWidth = viewHeight * this.camera.aspect;
 
                 const minY = -viewHeight / 2;
                 const maxY = viewHeight / 2;
@@ -556,6 +573,211 @@
                 const maxX = viewWidth / 2;
 
                 return { minX, maxX, minY, maxY };
+            }
+
+            detectMobile() {
+                return ('ontouchstart' in window) || navigator.maxTouchPoints > 0 || navigator.userAgent.includes('Mobi');
+            }
+
+            showTab(tab) {
+                const contentId = tab + '-content';
+                const tabElement = document.getElementById(tab + '-tab');
+                const contentElement = document.getElementById(contentId);
+
+                // Hide all tabs
+                document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+
+                // Show selected tab
+                contentElement.classList.add('active');
+                tabElement.classList.add('active');
+            }
+
+            toggleTab(tab) {
+                const contentId = tab + '-content';
+                const tabElement = document.getElementById(tab + '-tab');
+                const contentElement = document.getElementById(contentId);
+
+                if (contentElement.classList.contains('active')) {
+                    contentElement.classList.remove('active');
+                    tabElement.classList.remove('active');
+                } else {
+                    // Hide all tabs
+                    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+                    document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+
+                    // Show selected tab
+                    contentElement.classList.add('active');
+                    tabElement.classList.add('active');
+                }
+            }
+
+            updateUI() {
+                document.getElementById('firework-count').textContent = this.fireworkCount;
+                document.getElementById('auto-launcher-level').textContent = this.autoLauncherLevel;
+                document.getElementById('auto-launcher-cost').textContent = this.autoLauncherCost;
+                document.getElementById('sparkles-count').textContent = this.sparkles; // Update sparkles counter
+            }
+
+            update(deltaTime) {
+                // Update auto-launchers
+                this.autoLaunchers.forEach(launcher => {
+                    launcher.accumulator += deltaTime;
+                    if (launcher.accumulator >= 5) { // Every 5 seconds
+                        const bounds = this.getViewBounds();
+                        const x = bounds.minX + launcher.xPercent * (bounds.maxX - bounds.minX);
+                        this.launchFireworkAt(x);
+                        launcher.accumulator -= 5; // Reset accumulator
+                    }
+                });
+            }
+
+            saveProgress() {
+                localStorage.setItem('fireworkCount', this.fireworkCount);
+                localStorage.setItem('autoLauncherLevel', this.autoLauncherLevel);
+                localStorage.setItem('autoLauncherCost', this.autoLauncherCost);
+                localStorage.setItem('sparkles', this.sparkles);
+                localStorage.setItem('fireworkRecipes', JSON.stringify(this.recipes));
+                // Save auto-launchers positions
+                localStorage.setItem('autoLaunchers', JSON.stringify(this.autoLaunchers.map(launcher => ({ xPercent: launcher.xPercent, accumulator: launcher.accumulator }))));
+                // Save current recipe components
+                localStorage.setItem('currentRecipeComponents', JSON.stringify(this.currentRecipeComponents));
+            }
+
+            showNotification(message) {
+                const notification = document.getElementById('notification');
+                notification.textContent = message;
+                notification.classList.add('show');
+                // Hide after 3 seconds
+                setTimeout(() => {
+                    notification.classList.remove('show');
+                }, 3000);
+            }
+
+            pause() {
+                this.isPaused = true;
+            }
+
+            resume() {
+                if (this.isPaused) {
+                    this.isPaused = false;
+                    this.clock.start(); // Restart clock
+                }
+            }
+
+            animate() {
+                requestAnimationFrame(() => this.animate());
+
+                const delta = this.clock.getDelta();
+
+                if (!this.isPaused) {
+                    // Update fireworks
+                    for (let i = this.fireworks.length - 1; i >= 0; i--) {
+                        this.fireworks[i].update(delta);
+                        if (!this.fireworks[i].alive) {
+                            this.fireworks.splice(i, 1);
+                        }
+                    }
+
+                    // Update game logic
+                    this.update(delta);
+
+                    this.renderer.render(this.scene, this.camera);
+                }
+            }
+
+            launchFireworkAt(x) {
+                if (this.currentRecipeComponents.length === 0) {
+                    this.showNotification("Add at least one component to launch a firework!");
+                    return;
+                }
+                const bounds = this.getViewBounds();
+                const y = bounds.minY; // Bottom of the screen
+                this.launch(x, y, this.currentRecipeComponents);
+                this.fireworkCount++;
+                this.sparkles++;
+                this.saveProgress();
+                this.updateUI();
+            }
+
+            launch(x, y, components) {
+                const firework = new Firework(x, y, components, this.scene, this.camera);
+                this.fireworks.push(firework);
+            }
+
+            buyAutoLauncher() {
+                if (this.sparkles >= this.autoLauncherCost) {
+                    this.sparkles -= this.autoLauncherCost;
+                    this.autoLauncherLevel++;
+                    this.autoLauncherCost = Math.floor(this.autoLauncherCost * 1.5);
+                    // Create a new auto-launcher at a random X position (percentage)
+                    const xPercent = Math.random(); // Random percentage between 0 and 1
+                    const accumulator = Math.random() * 5;
+                    const launcher = {
+                        xPercent: xPercent,
+                        accumulator: accumulator
+                    };
+                    // Create visual representation of the auto-launcher
+                    this.createAutoLauncherMesh(launcher);
+                    this.autoLaunchers.push(launcher);
+                    this.saveProgress();
+                    this.updateUI();
+                    this.showNotification("Auto-Launcher purchased!");
+                } else {
+                    this.showNotification("Not enough sparkles to buy this upgrade!");
+                }
+            }
+
+            createAutoLauncherMesh(launcher) {
+                const geometry = new THREE.BoxGeometry(5, 10, 5);
+                const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+                const launcherMesh = new THREE.Mesh(geometry, material);
+                const bounds = this.getViewBounds();
+                const x = bounds.minX + launcher.xPercent * (bounds.maxX - bounds.minX);
+                const y = bounds.minY + 5; // Adjust Y position to stay visible
+                launcherMesh.position.set(x, y, 0); // Place just above bottom of the screen
+                this.scene.add(launcherMesh);
+
+                // Store the mesh reference in the launcher object
+                launcher.mesh = launcherMesh;
+            }
+
+            resetGame() {
+                // Reset all relevant game data
+                this.fireworkCount = 0;
+                this.autoLauncherLevel = 0;
+                this.autoLauncherCost = 10;
+                this.sparkles = 0;
+                this.recipes = [];
+                this.currentRecipeComponents = [{
+                    pattern: 'spherical',
+                    color: '#ff0000',
+                    size: 1.0,
+                    lifetime: 1.2,
+                    trailEffect: 'fade'
+                }];
+                // Remove auto-launchers from scene
+                this.autoLaunchers.forEach(launcher => {
+                    if (launcher.mesh) {
+                        this.scene.remove(launcher.mesh);
+                    }
+                });
+                this.autoLaunchers = [];
+                localStorage.clear();
+                this.updateUI();
+                this.updateComponentsList();
+                this.updateRecipeList();
+                this.showNotification("Game has been reset.");
+            }
+
+            showResetConfirmation() {
+                document.getElementById('reset-confirmation').style.display = 'block';
+                document.getElementById('overlay').style.display = 'block';
+            }
+
+            hideResetConfirmation() {
+                document.getElementById('reset-confirmation').style.display = 'none';
+                document.getElementById('overlay').style.display = 'none';
             }
 
             updateComponentsList() {
@@ -762,214 +984,12 @@
                 this.saveCurrentRecipeComponents();
                 this.showNotification(`Loaded Recipe ${index + 1}`);
             }
-
-			launchFireworkAt(x) {
-                if (this.currentRecipeComponents.length === 0) {
-                    this.showNotification("Add at least one component to launch a firework!");
-                    return;
-                }
-                const bounds = this.getViewBounds();
-                const y = bounds.minY; // Bottom of the screen
-                this.launch(x, y, this.currentRecipeComponents);
-                this.fireworkCount++;
-                this.sparkles++;
-                this.saveProgress();
-                this.updateUI();
-            }
-
-            launch(x, y, components) {
-                const firework = new Firework(x, y, components);
-                fireworks.push(firework);
-            }
-
-            buyAutoLauncher() {
-                if (this.sparkles >= this.autoLauncherCost) {
-                    this.sparkles -= this.autoLauncherCost;
-                    this.autoLauncherLevel++;
-                    this.autoLauncherCost = Math.floor(this.autoLauncherCost * 1.5);
-                    // Create a new auto-launcher at a random X position
-                    const bounds = this.getViewBounds();
-                    const launcherX = bounds.minX + Math.random() * (bounds.maxX - bounds.minX);
-                    this.autoLaunchers.push({
-                        x: launcherX,
-                        accumulator: Math.random() * 5
-                    });
-                    // Create visual representation of the auto-launcher
-                    this.createAutoLauncherMesh(launcherX);
-                    this.saveProgress();
-                    this.updateUI();
-                    this.showNotification("Auto-Launcher purchased!");
-                } else {
-                    this.showNotification("Not enough sparkles to buy this upgrade!");
-                }
-            }
-
-            createAutoLauncherMesh(x) {
-                const geometry = new THREE.BoxGeometry(5, 10, 5);
-                const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
-                const launcherMesh = new THREE.Mesh(geometry, material);
-                const bounds = this.getViewBounds();
-                launcherMesh.position.set(x, bounds.minY - 5, 0); // Place just below bottom of the screen
-                scene.add(launcherMesh);
-
-                // Store the mesh reference for future updates or removal
-                if (!this.autoLauncherMeshes) {
-                    this.autoLauncherMeshes = [];
-                }
-                this.autoLauncherMeshes.push(launcherMesh);
-            }
-
-            resetGame() {
-                // Reset all relevant game data
-                this.fireworkCount = 0;
-                this.autoLauncherLevel = 0;
-                this.autoLauncherCost = 10;
-                this.sparkles = 0;
-                this.recipes = [];
-                this.currentRecipeComponents = [{
-                    pattern: 'spherical',
-                    color: '#ff0000',
-                    size: 1.0,
-                    lifetime: 1.2,
-                    trailEffect: 'fade'
-                }];
-                // Remove auto-launchers from scene
-                if (this.autoLauncherMeshes) {
-                    this.autoLauncherMeshes.forEach(mesh => {
-                        scene.remove(mesh);
-                    });
-                    this.autoLauncherMeshes = [];
-                }
-                this.autoLaunchers = [];
-                localStorage.clear();
-                this.updateUI();
-                this.updateComponentsList();
-                this.updateRecipeList();
-                this.showNotification("Game has been reset.");
-            }
-
-            showResetConfirmation() {
-                document.getElementById('reset-confirmation').style.display = 'block';
-                document.getElementById('overlay').style.display = 'block';
-            }
-
-            hideResetConfirmation() {
-                document.getElementById('reset-confirmation').style.display = 'none';
-                document.getElementById('overlay').style.display = 'none';
-            }
-
-            update(deltaTime) {
-                // Update auto-launchers
-                this.autoLaunchers.forEach((launcher, index) => {
-                    launcher.accumulator += deltaTime;
-                    if (launcher.accumulator >= 5) { // Every 5 seconds
-                        this.launchFireworkAt(launcher.x);
-                        launcher.accumulator -= 5; // Reset accumulator
-                    }
-                });
-            }
-
-            saveProgress() {
-                localStorage.setItem('fireworkCount', this.fireworkCount);
-                localStorage.setItem('autoLauncherLevel', this.autoLauncherLevel);
-                localStorage.setItem('autoLauncherCost', this.autoLauncherCost);
-                localStorage.setItem('sparkles', this.sparkles);
-                localStorage.setItem('fireworkRecipes', JSON.stringify(this.recipes));
-                // Save auto-launchers positions
-                localStorage.setItem('autoLaunchers', JSON.stringify(this.autoLaunchers.map(launcher => ({ x: launcher.x }))));
-                // Save current recipe components
-                localStorage.setItem('currentRecipeComponents', JSON.stringify(this.currentRecipeComponents));
-            }
-
-            updateUI() {
-                document.getElementById('firework-count').textContent = this.fireworkCount;
-                document.getElementById('auto-launcher-level').textContent = this.autoLauncherLevel;
-                document.getElementById('auto-launcher-cost').textContent = this.autoLauncherCost;
-                document.getElementById('sparkles-count').textContent = this.sparkles; // Update sparkles counter
-            }
-
-            toggleTab(tab) {
-                const contentId = tab + '-content';
-                const tabElement = document.getElementById(tab + '-tab');
-                const contentElement = document.getElementById(contentId);
-
-                if (contentElement.classList.contains('active')) {
-                    contentElement.classList.remove('active');
-                    tabElement.classList.remove('active');
-                } else {
-                    // Hide all tabs
-                    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-                    document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
-
-                    // Show selected tab
-                    contentElement.classList.add('active');
-                    tabElement.classList.add('active');
-                }
-            }
-
-            showTab(tab) {
-                const contentId = tab + '-content';
-                const tabElement = document.getElementById(tab + '-tab');
-                const contentElement = document.getElementById(contentId);
-
-                // Hide all tabs
-                document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-                document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
-
-                // Show selected tab
-                contentElement.classList.add('active');
-                tabElement.classList.add('active');
-            }
-
-            detectMobile() {
-                return ('ontouchstart' in window) || navigator.maxTouchPoints > 0 || navigator.userAgent.includes('Mobi');
-            }
-
-            showNotification(message) {
-                const notification = document.getElementById('notification');
-                notification.textContent = message;
-                notification.classList.add('show');
-                // Hide after 3 seconds
-                setTimeout(() => {
-                    notification.classList.remove('show');
-                }, 3000);
-            }
-
-            pause() {
-                this.isPaused = true;
-            }
-
-            resume() {
-                if (this.isPaused) {
-                    this.isPaused = false;
-                    clock.start(); // Restart clock
-                }
-            }
-
-            animate() {
-                requestAnimationFrame(() => this.animate());
-
-                const delta = clock.getDelta();
-
-                if (!this.isPaused) {
-                    // Update fireworks
-                    for (let i = fireworks.length - 1; i >= 0; i--) {
-                        fireworks[i].update(delta);
-                        if (!fireworks[i].alive) {
-                            fireworks.splice(i, 1);
-                        }
-                    }
-
-                    // Update game logic
-                    this.update(delta);
-
-                    renderer.render(scene, camera);
-                }
-            }
         }
 
         class Firework {
-            constructor(x, y, components) {
+            constructor(x, y, components, scene, camera) {
+                this.scene = scene;
+                this.camera = camera;
                 this.rocket = this.createRocket(x, y);
                 this.components = components;
                 this.trailParticles = [];
@@ -977,8 +997,8 @@
                 this.alive = true;
 
                 // Calculate explosion height based on percentages
-                const distance = camera.position.z - this.rocket.position.z;
-                const vFOV = camera.fov * Math.PI / 180; // Convert to radians
+                const distance = this.camera.position.z - this.rocket.position.z;
+                const vFOV = this.camera.fov * Math.PI / 180; // Convert to radians
                 const viewHeight = 2 * Math.tan(vFOV / 2) * distance;
 
                 const minY = -viewHeight / 2 + FIREWORK_CONFIG.minExplosionHeightPercent * viewHeight;
@@ -992,7 +1012,7 @@
                 const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
                 const rocket = new THREE.Mesh(geometry, material);
                 rocket.position.set(x, y, 0);
-                scene.add(rocket);
+                this.scene.add(rocket);
                 return rocket;
             }
 
@@ -1007,7 +1027,7 @@
                     // Remove old trail particles
                     if (this.trailParticles.length > FIREWORK_CONFIG.trailLength) {
                         const oldParticle = this.trailParticles.shift();
-                        scene.remove(oldParticle);
+                        this.scene.remove(oldParticle);
                     }
 
                     // Check if reached target height
@@ -1045,7 +1065,7 @@
                         group.particleSystem.material.opacity = alpha;
 
                         if (!this.alive) {
-                            scene.remove(group.particleSystem);
+                            this.scene.remove(group.particleSystem);
                         }
                     });
                 }
@@ -1056,20 +1076,20 @@
                 const material = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
                 const particle = new THREE.Mesh(geometry, material);
                 particle.position.set(x, y, 0);
-                scene.add(particle);
+                this.scene.add(particle);
                 this.trailParticles.push(particle);
 
                 // Fade out and remove after some time
                 setTimeout(() => {
-                    scene.remove(particle);
+                    this.scene.remove(particle);
                 }, 500);
             }
 
             explode() {
                 // Remove rocket and trail particles
-                scene.remove(this.rocket);
+                this.scene.remove(this.rocket);
                 this.trailParticles.forEach(particle => {
-                    scene.remove(particle);
+                    this.scene.remove(particle);
                 });
                 this.trailParticles = [];
 
@@ -1144,10 +1164,11 @@
                         break;
 
                     case 'heart':
+						const heartScale = 1; // Adjusted scaling factor for compactness
                         for (i = 0; i < particleCount; i++) {
                             const t = (i / particleCount) * Math.PI * 2;
-                            const xOffset = 16 * Math.pow(Math.sin(t), 3);
-                            const yOffset = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+							const xOffset = heartScale * (16 * Math.pow(Math.sin(t), 3));
+							const yOffset = heartScale * (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
                             const angle = Math.atan2(yOffset, xOffset);
                             const magnitude = speed * Math.sqrt(xOffset * xOffset + yOffset * yOffset) * 0.05;
                             const vx = Math.cos(angle) * magnitude;
@@ -1207,7 +1228,7 @@
                             const angleOffset = (Math.random() - 0.5) * emissionAngle;
                             const angle = (-Math.PI / 2) + angleOffset;
 
-                            const horizontalDrift = (Math.random() - 0.5) * 100;
+                            const horizontalDrift = (Math.random() - 0.5) * 500;
 
                             const initialSpeed = speed * (0.7 + Math.random() * 0.3);
 
@@ -1270,7 +1291,7 @@
                 geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
                 const particleSystem = new THREE.Points(geometry, material);
-                scene.add(particleSystem);
+                this.scene.add(particleSystem);
 
                 return {
                     particleSystem: particleSystem,
@@ -1286,13 +1307,6 @@
         // Initialize game when DOM is loaded
         document.addEventListener('DOMContentLoaded', () => {
             window.game = new FireworkGame();
-
-            // Restore visual auto-launchers
-            if (game.autoLaunchers.length > 0) {
-                game.autoLaunchers.forEach(launcher => {
-                    game.createAutoLauncherMesh(launcher.x);
-                });
-            }
         });
     </script>
 </body>
