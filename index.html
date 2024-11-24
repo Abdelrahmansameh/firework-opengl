@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Firework Crafting Game</title>
-    <!-- Meta tag to prevent zooming and ensure proper scaling on mobile devices -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Firework Crafting Game - Three.js Version</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Include Three.js -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.min.js"></script>
     <style>
         /* Base Styles */
         body {
@@ -17,7 +18,17 @@
             touch-action: manipulation;
         }
 
-        .game-container {
+        #game-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            z-index: 0;
+        }
+
+        .game-ui {
             position: absolute;
             top: 10px;
             left: 10px;
@@ -31,6 +42,7 @@
             background: rgba(10, 14, 21, 0.9);
             border-radius: 10px;
             z-index: 1000; /* Ensure UI is above canvas */
+            pointer-events: auto;
         }
 
         .panel {
@@ -145,17 +157,6 @@
             display: block;
         }
 
-        /* Canvas styling to fill the viewport */
-        canvas {
-            position: fixed;
-            top: 0;
-            left: 0;
-            z-index: -1;
-            width: 100%;
-            height: 100%;
-            touch-action: manipulation; /* Prevent double-tap zoom on canvas */
-        }
-
         /* Styles for Components */
         .component {
             border: 1px solid #34495e;
@@ -201,24 +202,25 @@
 
         /* Adjustments for Mobile Compatibility */
         @media only screen and (max-width: 600px) {
-            .game-container {
-                position: relative;
-                top: 0;
-                left: 0;
-                max-width: 100%;
-                width: 100%;
-                margin: 0 auto;
-                border-radius: 0;
+            .game-ui {
+                position: absolute;
+                top: 10px;
+                left: 10px;
+                max-width: 90%;
+                width: auto;
+                margin: 0;
+                border-radius: 10px;
                 padding: 10px;
                 overflow-y: auto;
             }
 
             .tabs {
-                flex-direction: column;
+                flex-direction: row;
+                flex-wrap: wrap;
             }
 
             .tab {
-                margin-right: 0;
+                margin-right: 5px;
                 margin-bottom: 5px;
             }
 
@@ -260,7 +262,7 @@
             padding: 15px;
             border: 1px solid #34495e;
             border-radius: 10px;
-            position: absolute;
+            position: fixed;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
@@ -292,7 +294,9 @@
     </style>
 </head>
 <body>
-    <div class="game-container">
+    <div id="game-container"></div>
+
+    <div class="game-ui">
         <div class="tabs">
             <div class="tab active" id="crafting-tab">Crafting</div>
             <div class="tab" id="incremental-tab">Incremental</div>
@@ -351,46 +355,28 @@
     </div>
     <div id="overlay" class="overlay" style="display: none;"></div>
 
-    <canvas id="gameCanvas"></canvas>
-
+    <!-- Include your script at the end -->
     <script>
         // Global configuration
         const FIREWORK_CONFIG = {
-            useStrongGlow: false, // Set to true on desktops for enhanced visuals
-            baseSpeed: 100,           // Units per second (adjusted for slower ascent)
-            gravity: 100,             // Standard gravity value
-            trailLength: 20,          // Launch trail length
-            particleSize: 3,          // Base particle size
-            glowStrength: 0.8,        // Glow intensity (0-1)
+            baseSpeed: 100,           // Adjusted base speed
+            gravity: 9.81,            // Realistic gravity
+            particleSize: 1.5,        // Base particle size
             particleDensity: 100,     // Base number of particles
-            ascentSpeed: -300         // Negative for upward movement (slower ascent)
+            ascentSpeed: 60,          // Speed of the firework rocket ascent
+            trailLength: 10,          // Length of the rocket trail
+            rocketSize: 0.5,          // Size of the firework rocket
+            minExplosionHeightPercent: 0.4, // Minimum explosion height (40% of the view)
+            maxExplosionHeightPercent: 0.9  // Maximum explosion height (90% of the view)
         };
 
-        // Coordinate Transformation API
-        const CoordinateAPI = (() => {
-            let dpr = window.devicePixelRatio || 1;
-            let logicalWidth = window.innerWidth;
-            let logicalHeight = window.innerHeight;
-
-            return {
-                setScale: (newDpr, newLogicalWidth, newLogicalHeight) => {
-                    dpr = newDpr;
-                    logicalWidth = newLogicalWidth;
-                    logicalHeight = newLogicalHeight;
-                },
-                toLogicalX: (x) => x, // Direct mapping since context is scaled
-                toLogicalY: (y) => y,
-                toPhysicalX: (x) => x * dpr,
-                toPhysicalY: (y) => y * dpr,
-                getLogicalWidth: () => logicalWidth,
-                getLogicalHeight: () => logicalHeight,
-                getDPR: () => dpr
-            };
-        })();
+        // Initialize the THREE.js scene
+        let scene, camera, renderer;
+        let fireworks = [];
+        let clock;
 
         class FireworkGame {
             constructor() {
-                // Initialize variables before creating the engine
                 this.recipes = [];
                 this.currentRecipeComponents = [];
                 this.fireworkCount = parseInt(localStorage.getItem('fireworkCount')) || 0;
@@ -402,50 +388,70 @@
                 this.autoLaunchers = JSON.parse(localStorage.getItem('autoLaunchers')) || [];
                 // Initialize accumulators for each launcher
                 this.autoLaunchers.forEach(launcher => {
-                    // Initialize accumulator to a random value between 0 and 5
                     launcher.accumulator = Math.random() * 5;
                 });
 
                 this.isMobile = this.detectMobile();
                 this.adjustConfigurations();
+
+                // Initialize THREE.js first
+                this.initThreeJS();
+
+                // Now you can bind events
                 this.bindEvents();
+
                 this.loadRecipes();
                 this.loadCurrentRecipe();
                 this.updateUI();
                 this.updateComponentsList();
                 this.updateRecipeList();
 
-                // Now create the engine after variables are initialized
-                this.engine = new GameEngine('gameCanvas', this.update.bind(this), this);
-
                 // Start the rendering loop
-                this.engine.loop();
+                this.animate();
 
                 // Handle page visibility change
                 document.addEventListener('visibilitychange', () => {
                     if (document.visibilityState === 'hidden') {
-                        this.engine.pause();
+                        this.pause();
                     } else if (document.visibilityState === 'visible') {
-                        this.engine.resume();
+                        this.resume();
                     }
                 });
             }
 
-            // Adjust FIREWORK_CONFIG based on device type for performance optimization
+            initThreeJS() {
+                scene = new THREE.Scene();
+
+                camera = new THREE.PerspectiveCamera(
+                    75,
+                    window.innerWidth / window.innerHeight,
+                    0.1,
+                    1000
+                );
+                camera.position.z = 100;
+
+                renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                renderer.setPixelRatio(window.devicePixelRatio);
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.setClearColor(0x000000, 1);
+
+                const gameContainer = document.getElementById('game-container');
+                gameContainer.appendChild(renderer.domElement);
+
+                clock = new THREE.Clock();
+
+                window.addEventListener('resize', this.onWindowResize.bind(this), false);
+            }
+
+            onWindowResize() {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.setPixelRatio(window.devicePixelRatio);
+            }
+
             adjustConfigurations() {
-                if (this.isMobile) {
-                    // Optimize for mobile: reduce particle density and trail length
-                    FIREWORK_CONFIG.particleDensity = 50; // Further reduced for better performance
-                    FIREWORK_CONFIG.trailLength = 8;      // Further reduced
-                    FIREWORK_CONFIG.gravity = 100;         // Increased gravity for smoother descent
-                    FIREWORK_CONFIG.glowStrength = 0.5;    // Further reduced glow for performance
-                } else {
-                    // Desktop configurations
-                    FIREWORK_CONFIG.particleDensity = 100;
-                    FIREWORK_CONFIG.trailLength = 15;
-                    FIREWORK_CONFIG.gravity = 100;         // Adjusted gravity
-                    FIREWORK_CONFIG.glowStrength = 0.8;
-                }
+                // Adjust configurations if needed
             }
 
             bindEvents() {
@@ -497,28 +503,59 @@
                 this.showTab('crafting');
 
                 // Use pointerdown event to handle both mouse and touch input
-                document.addEventListener('pointerdown', (e) => {
+                renderer.domElement.addEventListener('pointerdown', (e) => {
                     if (!this.isClickInsideUI(e)) {
                         e.preventDefault(); // Prevent any default behavior
-                        const rect = this.engine.canvas.getBoundingClientRect();
-                        const x = e.clientX - rect.left;
-                        const y = e.clientY - rect.top;
+                        const x = e.clientX;
+                        const y = e.clientY;
 
-                        // Ensure x and y are within canvas bounds
-                        if (x >= 0 && x <= rect.width && y >= 0 && y <= rect.height) {
-                            const logicalX = x; // Direct mapping since CoordinateAPI.toLogicalX(x) = x
-                            this.launchFireworkAt(logicalX);
-                        }
+                        const worldPos = this.screenToWorld(x, y);
+                        this.launchFireworkAt(worldPos.x);
                     }
                 });
             }
 
             isClickInsideUI(event) {
-                const ui = document.querySelector('.game-container');
-                const rect = ui.getBoundingClientRect();
-                let x = event.clientX;
-                let y = event.clientY;
-                return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+                const uiElements = document.querySelectorAll('.game-ui, .reset-confirmation, .overlay');
+                for (let ui of uiElements) {
+                    const rect = ui.getBoundingClientRect();
+                    let x = event.clientX;
+                    let y = event.clientY;
+                    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom && ui.style.display !== 'none') {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            screenToWorld(x, y) {
+                const mouse = new THREE.Vector2();
+                mouse.x = (x / window.innerWidth) * 2 - 1;
+                mouse.y = - (y / window.innerHeight) * 2 + 1;
+
+                const raycaster = new THREE.Raycaster();
+                raycaster.setFromCamera(mouse, camera);
+
+                // Calculate the intersection point with the z = 0 plane
+                const t = - (camera.position.z) / raycaster.ray.direction.z;
+                const worldPos = new THREE.Vector3();
+                worldPos.copy(raycaster.ray.direction).multiplyScalar(t).add(camera.position);
+
+                return worldPos;
+            }
+
+            getViewBounds() {
+                const distance = camera.position.z;
+                const vFOV = camera.fov * Math.PI / 180; // Convert to radians
+                const viewHeight = 2 * Math.tan(vFOV / 2) * distance;
+                const viewWidth = viewHeight * camera.aspect;
+
+                const minY = -viewHeight / 2;
+                const maxY = viewHeight / 2;
+                const minX = -viewWidth / 2;
+                const maxX = viewWidth / 2;
+
+                return { minX, maxX, minY, maxY };
             }
 
             updateComponentsList() {
@@ -535,12 +572,12 @@
                             <label>Pattern Type:</label>
                             <select class="pattern-select" data-index="${index}">
                                 <option value="spherical">Spherical</option>
-                                <option value="willow">Willow</option>
-                                <option value="palm">Palm</option>
                                 <option value="ring">Ring</option>
-                                <option value="star">Star</option>
                                 <option value="heart">Heart</option>
+                                <option value="star">Star</option>
                                 <option value="burst">Burst</option>
+                                <option value="palm">Palm</option>
+                                <option value="willow">Willow</option>
                             </select>
                         </div>
                         <div class="crafting-option">
@@ -664,6 +701,7 @@
             }
 
             eraseAllRecipes() {
+                // Implement in-page confirmation if needed
                 if (confirm("Are you sure you want to erase all saved recipes?")) {
                     this.recipes = [];
                     localStorage.removeItem('fireworkRecipes');
@@ -725,17 +763,23 @@
                 this.showNotification(`Loaded Recipe ${index + 1}`);
             }
 
-            launchFireworkAt(logicalX) {
+			launchFireworkAt(x) {
                 if (this.currentRecipeComponents.length === 0) {
                     this.showNotification("Add at least one component to launch a firework!");
                     return;
                 }
-                // Firework is always launched from the bottom; y is handled internally
-                this.engine.launch(logicalX, this.currentRecipeComponents);
+                const bounds = this.getViewBounds();
+                const y = bounds.minY; // Bottom of the screen
+                this.launch(x, y, this.currentRecipeComponents);
                 this.fireworkCount++;
                 this.sparkles++;
                 this.saveProgress();
                 this.updateUI();
+            }
+
+            launch(x, y, components) {
+                const firework = new Firework(x, y, components);
+                fireworks.push(firework);
             }
 
             buyAutoLauncher() {
@@ -744,17 +788,35 @@
                     this.autoLauncherLevel++;
                     this.autoLauncherCost = Math.floor(this.autoLauncherCost * 1.5);
                     // Create a new auto-launcher at a random X position
-                    const launcherX = Math.random() * CoordinateAPI.getLogicalWidth();
+                    const bounds = this.getViewBounds();
+                    const launcherX = bounds.minX + Math.random() * (bounds.maxX - bounds.minX);
                     this.autoLaunchers.push({
                         x: launcherX,
-                        accumulator: Math.random() * 5 // Randomize accumulator for immediate action
+                        accumulator: Math.random() * 5
                     });
+                    // Create visual representation of the auto-launcher
+                    this.createAutoLauncherMesh(launcherX);
                     this.saveProgress();
                     this.updateUI();
                     this.showNotification("Auto-Launcher purchased!");
                 } else {
                     this.showNotification("Not enough sparkles to buy this upgrade!");
                 }
+            }
+
+            createAutoLauncherMesh(x) {
+                const geometry = new THREE.BoxGeometry(5, 10, 5);
+                const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+                const launcherMesh = new THREE.Mesh(geometry, material);
+                const bounds = this.getViewBounds();
+                launcherMesh.position.set(x, bounds.minY - 5, 0); // Place just below bottom of the screen
+                scene.add(launcherMesh);
+
+                // Store the mesh reference for future updates or removal
+                if (!this.autoLauncherMeshes) {
+                    this.autoLauncherMeshes = [];
+                }
+                this.autoLauncherMeshes.push(launcherMesh);
             }
 
             resetGame() {
@@ -771,6 +833,13 @@
                     lifetime: 1.2,
                     trailEffect: 'fade'
                 }];
+                // Remove auto-launchers from scene
+                if (this.autoLauncherMeshes) {
+                    this.autoLauncherMeshes.forEach(mesh => {
+                        scene.remove(mesh);
+                    });
+                    this.autoLauncherMeshes = [];
+                }
                 this.autoLaunchers = [];
                 localStorage.clear();
                 this.updateUI();
@@ -791,7 +860,7 @@
 
             update(deltaTime) {
                 // Update auto-launchers
-                this.autoLaunchers.forEach(launcher => {
+                this.autoLaunchers.forEach((launcher, index) => {
                     launcher.accumulator += deltaTime;
                     if (launcher.accumulator >= 5) { // Every 5 seconds
                         this.launchFireworkAt(launcher.x);
@@ -865,51 +934,6 @@
                     notification.classList.remove('show');
                 }, 3000);
             }
-        }
-
-        class GameEngine {
-            constructor(canvasId, onUpdate, fireworkGame) {
-                this.canvas = document.getElementById(canvasId);
-                this.ctx = this.canvas.getContext('2d');
-                this.particles = []; // For explosion particles
-                this.fireworks = []; // For active fireworks (including trail)
-                this.lastTime = performance.now();
-                this.isPaused = false;
-                this.onUpdate = onUpdate; // Callback for the game's update method
-                this.fireworkGame = fireworkGame; // Reference to the FireworkGame instance
-
-                this.resize(); // Initial resize
-
-                // Debounce resize events to prevent performance issues
-                let resizeTimeout;
-                window.addEventListener('resize', () => {
-                    clearTimeout(resizeTimeout);
-                    resizeTimeout = setTimeout(() => this.resize(), 100);
-                });
-            }
-
-            resize() {
-                const dpr = window.devicePixelRatio || 1;
-                const logicalWidth = window.innerWidth;
-                const logicalHeight = window.innerHeight;
-
-                // Update the CoordinateAPI with the current scale and dimensions
-                CoordinateAPI.setScale(dpr, logicalWidth, logicalHeight);
-
-                // Set the physical canvas size
-                this.canvas.width = logicalWidth * dpr;
-                this.canvas.height = logicalHeight * dpr;
-
-                // Set the CSS display size
-                this.canvas.style.width = `${logicalWidth}px`;
-                this.canvas.style.height = `${logicalHeight}px`;
-
-                // Reset the transformation matrix before scaling
-                this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-
-                // Scale the context to map logical coordinates to physical pixels
-                this.ctx.scale(dpr, dpr);
-            }
 
             pause() {
                 this.isPaused = true;
@@ -918,83 +942,224 @@
             resume() {
                 if (this.isPaused) {
                     this.isPaused = false;
-                    this.lastTime = performance.now(); // Reset lastTime to prevent jump in animation
+                    clock.start(); // Restart clock
                 }
             }
 
-            applyGlow(color) {
-                if (FIREWORK_CONFIG.useStrongGlow) {
-                    this.ctx.shadowColor = color;
-                    this.ctx.shadowBlur = 15;
-                    this.ctx.shadowOffsetX = 0;
-                    this.ctx.shadowOffsetY = 0;
+            animate() {
+                requestAnimationFrame(() => this.animate());
+
+                const delta = clock.getDelta();
+
+                if (!this.isPaused) {
+                    // Update fireworks
+                    for (let i = fireworks.length - 1; i >= 0; i--) {
+                        fireworks[i].update(delta);
+                        if (!fireworks[i].alive) {
+                            fireworks.splice(i, 1);
+                        }
+                    }
+
+                    // Update game logic
+                    this.update(delta);
+
+                    renderer.render(scene, camera);
+                }
+            }
+        }
+
+        class Firework {
+            constructor(x, y, components) {
+                this.rocket = this.createRocket(x, y);
+                this.components = components;
+                this.trailParticles = [];
+                this.exploded = false;
+                this.alive = true;
+
+                // Calculate explosion height based on percentages
+                const distance = camera.position.z - this.rocket.position.z;
+                const vFOV = camera.fov * Math.PI / 180; // Convert to radians
+                const viewHeight = 2 * Math.tan(vFOV / 2) * distance;
+
+                const minY = -viewHeight / 2 + FIREWORK_CONFIG.minExplosionHeightPercent * viewHeight;
+                const maxY = -viewHeight / 2 + FIREWORK_CONFIG.maxExplosionHeightPercent * viewHeight;
+
+                this.targetY = minY + Math.random() * (maxY - minY);
+            }
+
+            createRocket(x, y) {
+                const geometry = new THREE.SphereGeometry(FIREWORK_CONFIG.rocketSize, 8, 8);
+                const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+                const rocket = new THREE.Mesh(geometry, material);
+                rocket.position.set(x, y, 0);
+                scene.add(rocket);
+                return rocket;
+            }
+
+            update(delta) {
+                if (!this.exploded) {
+                    // Move rocket upwards
+                    this.rocket.position.y += FIREWORK_CONFIG.ascentSpeed * delta;
+
+                    // Create trail particle
+                    this.createTrailParticle(this.rocket.position.x, this.rocket.position.y);
+
+                    // Remove old trail particles
+                    if (this.trailParticles.length > FIREWORK_CONFIG.trailLength) {
+                        const oldParticle = this.trailParticles.shift();
+                        scene.remove(oldParticle);
+                    }
+
+                    // Check if reached target height
+                    if (this.rocket.position.y >= this.targetY) {
+                        // Explode
+                        this.explode();
+                    }
+                } else {
+                    // Update explosion particles
+                    this.alive = false;
+                    this.particleGroups.forEach(group => {
+                        const positions = group.particleSystem.geometry.attributes.position.array;
+
+                        for (let i = 0; i < group.velocities.length; i++) {
+                            if (group.lifetimes[i] > 0) {
+                                // Update velocity with gravity
+                                group.velocities[i].y -= group.gravities[i] * delta;
+
+                                // Update position
+                                positions[i * 3] += group.velocities[i].x * delta;
+                                positions[i * 3 + 1] += group.velocities[i].y * delta;
+
+                                // Update lifetime
+                                group.lifetimes[i] -= delta;
+
+                                this.alive = true;
+                            }
+                        }
+
+                        // Mark position attribute as needing update
+                        group.particleSystem.geometry.attributes.position.needsUpdate = true;
+
+                        // Update opacity based on lifetime
+                        const alpha = Math.max(Math.min(group.lifetimes[0] / group.initialLifetime, 1), 0);
+                        group.particleSystem.material.opacity = alpha;
+
+                        if (!this.alive) {
+                            scene.remove(group.particleSystem);
+                        }
+                    });
                 }
             }
 
-            clearGlow() {
-                if (FIREWORK_CONFIG.useStrongGlow) {
-                    this.ctx.shadowColor = 'transparent';
-                    this.ctx.shadowBlur = 0;
-                }
+            createTrailParticle(x, y) {
+                const geometry = new THREE.SphereGeometry(0.2, 4, 4);
+                const material = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
+                const particle = new THREE.Mesh(geometry, material);
+                particle.position.set(x, y, 0);
+                scene.add(particle);
+                this.trailParticles.push(particle);
+
+                // Fade out and remove after some time
+                setTimeout(() => {
+                    scene.remove(particle);
+                }, 500);
             }
 
-            launch(x, components) {
-                const maxYRatio = 0.3;
-                const minYRatio = 0.25;
-
-                const logicalHeight = CoordinateAPI.getLogicalHeight();
-                const minY = logicalHeight * minYRatio;
-                const maxY = logicalHeight * maxYRatio;
-
-                const targetY = minY + Math.random() * (maxY - minY);
-
-                const firework = {
-                    x: x,
-                    y: logicalHeight,
-                    targetY: targetY,
-                    velocity: FIREWORK_CONFIG.ascentSpeed,
-                    components: components.map(component => ({ ...component })),
-                    trail: [] // Holds trail particles
-                };
-
-                this.fireworks.push(firework);
-            }
-
-            explode(firework) {
-                firework.components.forEach(component => {
-                    const particles = this.createPattern(firework.x, firework.y, component);
-                    this.particles.push(...particles);
+            explode() {
+                // Remove rocket and trail particles
+                scene.remove(this.rocket);
+                this.trailParticles.forEach(particle => {
+                    scene.remove(particle);
                 });
+                this.trailParticles = [];
+
+                // Create explosion particles
+                this.particleGroups = [];
+
+                this.components.forEach(component => {
+                    const particles = this.createParticles(this.rocket.position.x, this.rocket.position.y, component);
+                    this.particleGroups.push(particles);
+                });
+
+                this.exploded = true;
             }
 
-            createPattern(x, y, recipe) {
-                const particles = [];
+            createParticles(x, y, recipe) {
                 const particleCount = Math.floor(FIREWORK_CONFIG.particleDensity * recipe.size);
                 const speed = FIREWORK_CONFIG.baseSpeed * recipe.size;
 
+                // Initialize arrays
+                const positions = new Float32Array(particleCount * 3);
+                const velocities = new Array(particleCount);
+                const gravities = new Float32Array(particleCount);
+                const lifetimes = new Float32Array(particleCount);
+
+                // Create geometry and material
+                const geometry = new THREE.BufferGeometry();
+                const color = new THREE.Color(recipe.color);
+
+                const material = new THREE.PointsMaterial({
+                    color: color,
+                    size: FIREWORK_CONFIG.particleSize * recipe.size,
+                    blending: THREE.AdditiveBlending,
+                    transparent: true,
+                    depthWrite: false
+                });
+
+                let i = 0; // Index for positions and velocities arrays
+
                 switch (recipe.pattern) {
                     case 'spherical':
-                        for (let i = 0; i < particleCount; i++) {
+                        for (i = 0; i < particleCount; i++) {
                             const angle = (i / particleCount) * Math.PI * 2;
-                            particles.push(this.createParticle(x, y, angle, speed * (0.8 + Math.random() * 0.4), recipe));
+                            const magnitude = speed * (0.8 + Math.random() * 0.4);
+                            const vx = Math.cos(angle) * magnitude;
+                            const vy = Math.sin(angle) * magnitude;
+
+                            positions[i * 3] = x;
+                            positions[i * 3 + 1] = y;
+                            positions[i * 3 + 2] = 0;
+
+                            velocities[i] = new THREE.Vector3(vx, vy, 0);
+                            gravities[i] = FIREWORK_CONFIG.gravity;
+                            lifetimes[i] = recipe.lifetime;
                         }
                         break;
 
                     case 'ring':
-                        for (let i = 0; i < particleCount; i++) {
+                        for (i = 0; i < particleCount; i++) {
                             const angle = (i / particleCount) * Math.PI * 2;
-                            particles.push(this.createParticle(x, y, angle, speed, recipe));
+                            const magnitude = speed;
+                            const vx = Math.cos(angle) * magnitude;
+                            const vy = Math.sin(angle) * magnitude;
+
+                            positions[i * 3] = x;
+                            positions[i * 3 + 1] = y;
+                            positions[i * 3 + 2] = 0;
+
+                            velocities[i] = new THREE.Vector3(vx, vy, 0);
+                            gravities[i] = FIREWORK_CONFIG.gravity;
+                            lifetimes[i] = recipe.lifetime;
                         }
                         break;
 
                     case 'heart':
-                        for (let i = 0; i < particleCount; i++) {
+                        for (i = 0; i < particleCount; i++) {
                             const t = (i / particleCount) * Math.PI * 2;
                             const xOffset = 16 * Math.pow(Math.sin(t), 3);
-                            const yOffset = - (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+                            const yOffset = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
                             const angle = Math.atan2(yOffset, xOffset);
-                            const magnitude = Math.sqrt(xOffset * xOffset + yOffset * yOffset);
-                            particles.push(this.createParticle(x, y, angle, speed * magnitude * 0.05, recipe));
+                            const magnitude = speed * Math.sqrt(xOffset * xOffset + yOffset * yOffset) * 0.05;
+                            const vx = Math.cos(angle) * magnitude;
+                            const vy = Math.sin(angle) * magnitude;
+
+                            positions[i * 3] = x;
+                            positions[i * 3 + 1] = y;
+                            positions[i * 3 + 2] = 0;
+
+                            velocities[i] = new THREE.Vector3(vx, vy, 0);
+                            gravities[i] = FIREWORK_CONFIG.gravity;
+                            lifetimes[i] = recipe.lifetime;
                         }
                         break;
 
@@ -1002,204 +1167,132 @@
                         const spikes = 5;
                         const outerRadius = speed;
                         const innerRadius = speed * 0.5;
-                        for (let i = 0; i < spikes * 2; i++) {
+                        for (i = 0; i < spikes * 2; i++) {
                             const radius = (i % 2 === 0) ? outerRadius : innerRadius;
                             const angle = (i / (spikes * 2)) * Math.PI * 2;
-                            particles.push(this.createParticle(x, y, angle, radius, recipe));
+                            const vx = Math.cos(angle) * radius;
+                            const vy = Math.sin(angle) * radius;
+
+                            positions[i * 3] = x;
+                            positions[i * 3 + 1] = y;
+                            positions[i * 3 + 2] = 0;
+
+                            velocities[i] = new THREE.Vector3(vx, vy, 0);
+                            gravities[i] = FIREWORK_CONFIG.gravity;
+                            lifetimes[i] = recipe.lifetime;
                         }
                         break;
 
                     case 'burst':
-                        for (let i = 0; i < particleCount; i++) {
+                        for (i = 0; i < particleCount; i++) {
                             const angle = Math.random() * Math.PI * 2;
-                            particles.push(this.createParticle(x, y, angle, speed * Math.random(), recipe));
+                            const magnitude = speed * Math.random();
+                            const vx = Math.cos(angle) * magnitude;
+                            const vy = Math.sin(angle) * magnitude;
+
+                            positions[i * 3] = x;
+                            positions[i * 3 + 1] = y;
+                            positions[i * 3 + 2] = 0;
+
+                            velocities[i] = new THREE.Vector3(vx, vy, 0);
+                            gravities[i] = FIREWORK_CONFIG.gravity;
+                            lifetimes[i] = recipe.lifetime;
                         }
                         break;
 
-                  case 'willow':
-                            // Enhanced Willow Pattern: Faster descent and slight increased spread
-                            const emissionAngle = 15 * (Math.PI / 180); // 15 degrees in radians
-                            for (let i = 0; i < particleCount; i++) {
-                                // Emit particles within a narrower vertical cone
-                                const angleOffset = (Math.random() - 0.5) * emissionAngle;
-                                const angle = (-Math.PI / 2) + angleOffset; // Centered upwards
+                    case 'willow':
+                        // Enhanced Willow Pattern
+                        const emissionAngle = 0.261799; // 15 degrees in radians
+                        for (i = 0; i < particleCount; i++) {
+                            const angleOffset = (Math.random() - 0.5) * emissionAngle;
+                            const angle = (-Math.PI / 2) + angleOffset;
 
-                                // Slight horizontal drift
-                                const horizontalDrift = (Math.random() - 0.5) * 100; // Pixels per second
+                            const horizontalDrift = (Math.random() - 0.5) * 100;
 
-                                const initialSpeed = speed * (0.7 + Math.random() * 0.3); // Slight variation in speed
+                            const initialSpeed = speed * (0.7 + Math.random() * 0.3);
 
-                                const particle = this.createParticle(x, y, angle, initialSpeed, recipe);
-                                if (particle) {
-                                    particle.velocity.x += horizontalDrift / 1000; // Convert to per second
-                                    particle.gravity = FIREWORK_CONFIG.gravity * 3; // Increased gravity for faster descent
-                                    particles.push(particle);
-                                }
+                            const vx = Math.cos(angle) * initialSpeed + horizontalDrift / 1000;
+                            const vy = Math.sin(angle) * initialSpeed;
+
+                            positions[i * 3] = x;
+                            positions[i * 3 + 1] = y;
+                            positions[i * 3 + 2] = 0;
+
+                            velocities[i] = new THREE.Vector3(vx, vy, 0);
+                            gravities[i] = FIREWORK_CONFIG.gravity * 3;
+                            lifetimes[i] = recipe.lifetime;
+                        }
+                        break;
+
+                    case 'palm':
+                        const branches = 8;
+                        const particlesPerBranch = Math.floor(particleCount / branches);
+                        i = 0;
+                        for (let branch = 0; branch < branches; branch++) {
+                            const baseAngle = (branch / branches) * Math.PI * 2;
+                            for (let j = 0; j < particlesPerBranch; j++) {
+                                const angle = baseAngle + (Math.random() - 0.5) * 0.3;
+                                const magnitude = speed * (1.5 + j / particleCount);
+                                const vx = Math.cos(angle) * magnitude;
+                                const vy = Math.sin(angle) * magnitude;
+
+                                positions[i * 3] = x;
+                                positions[i * 3 + 1] = y;
+                                positions[i * 3 + 2] = 0;
+
+                                velocities[i] = new THREE.Vector3(vx, vy, 0);
+                                gravities[i] = FIREWORK_CONFIG.gravity * 0.5;
+                                lifetimes[i] = recipe.lifetime;
+
+                                i++;
                             }
-                            break;
-
-                        case 'palm':
-                            const branches = 8;
-                            for (let branch = 0; branch < branches; branch++) {
-                                const baseAngle = (branch / branches) * Math.PI * 2;
-                                for (let i = 0; i < particleCount / branches; i++) {
-                                    const angle = baseAngle + (Math.random() - 0.5) * 0.3;
-                                    const particle = this.createParticle(x, y, angle, speed * (1.5 + i / particleCount), recipe);
-                                    if (particle) {
-                                        particle.gravity = FIREWORK_CONFIG.gravity * 0.5;
-                                        particles.push(particle);
-                                    }
-                                }
-                            }
-                            break;
+                        }
+                        break;
 
                     default:
-                        console.warn(`Unknown pattern type: ${recipe.pattern}`);
-                }
+                        for (i = 0; i < particleCount; i++) {
+                            const angle = Math.random() * Math.PI * 2;
+                            const magnitude = speed;
+                            const vx = Math.cos(angle) * magnitude;
+                            const vy = Math.sin(angle) * magnitude;
 
-                return particles;
-            }
+                            positions[i * 3] = x;
+                            positions[i * 3 + 1] = y;
+                            positions[i * 3 + 2] = 0;
 
-            createParticle(x, y, angle, speed, recipe, isWillow = false) {
-                const particle = {
-                    x: x,
-                    y: y,
-                    velocity: {
-                        x: Math.cos(angle) * speed,
-                        y: Math.sin(angle) * speed
-                    },
-                    color: recipe.color,
-                    alpha: 1,
-                    life: recipe.lifetime,
-                    maxLife: recipe.lifetime,
-                    gravity: FIREWORK_CONFIG.gravity,
-                    trail: [] // For individual particle trails, if needed
-                };
-
-                if (isWillow) {
-                    // Modify particle for willow effect
-                    particle.gravity *= 0.2;
-                    particle.velocity.x *= 0.5;
-                    particle.velocity.y *= 0.5;
-                }
-
-                return particle;
-            }
-
-            update(deltaTime) {
-                this.fireworks = this.fireworks.filter(firework => {
-                    firework.y += firework.velocity * deltaTime;
-                    firework.trail.unshift({ x: firework.x, y: firework.y, alpha: 1 });
-
-                    if (firework.trail.length > FIREWORK_CONFIG.trailLength) {
-                        firework.trail.pop();
-                    }
-
-                    if (firework.y <= firework.targetY) {
-                        this.explode(firework);
-                        return false;
-                    }
-
-                    return true;
-                });
-
-                this.particles = this.particles.filter(particle => {
-                    particle.x += particle.velocity.x * deltaTime;
-                    particle.y += particle.velocity.y * deltaTime;
-                    particle.velocity.y += particle.gravity * deltaTime;
-
-                    particle.alpha = Math.max((particle.life / particle.maxLife) * FIREWORK_CONFIG.glowStrength, 0);
-                    particle.life -= deltaTime;
-
-                    return particle.life > 0;
-                });
-
-                // Call the game's update method for auto-launching
-                if (this.onUpdate) {
-                    this.onUpdate(deltaTime);
-                }
-            }
-
-            render() {
-                this.ctx.fillStyle = '#000000';
-                this.ctx.fillRect(0, 0, CoordinateAPI.getLogicalWidth(), CoordinateAPI.getLogicalHeight());
-
-                // Draw firework trails
-                this.fireworks.forEach(firework => {
-                    firework.trail.forEach((point, index) => {
-                        const alpha = 1 - (index / FIREWORK_CONFIG.trailLength);
-                        const effect = firework.components[0]?.trailEffect; // Assuming all components share the same trail effect
-
-                        let color = `rgba(255, 220, 180, ${alpha * 0.5})`;
-                        if (effect === 'rainbow') {
-                            const hue = (index / FIREWORK_CONFIG.trailLength) * 360;
-                            color = `hsla(${hue}, 100%, 50%, ${alpha * 0.7})`;
-                        } else if (effect === 'sparkle' && Math.random() < 0.1) {
-                            color = `rgba(255, 255, 255, ${alpha})`;
+                            velocities[i] = new THREE.Vector3(vx, vy, 0);
+                            gravities[i] = FIREWORK_CONFIG.gravity;
+                            lifetimes[i] = recipe.lifetime;
                         }
-
-                        this.ctx.fillStyle = color;
-                        this.applyGlow('#ffffff');
-                        this.ctx.beginPath();
-                        this.ctx.arc(point.x, point.y, 2, 0, Math.PI * 2);
-                        this.ctx.fill();
-                    });
-                });
-
-                // Draw explosion particles
-                this.particles.forEach(particle => {
-                    this.ctx.globalAlpha = particle.alpha;
-                    this.ctx.fillStyle = particle.color;
-                    this.applyGlow(particle.color);
-                    this.ctx.beginPath();
-                    this.ctx.arc(particle.x, particle.y, FIREWORK_CONFIG.particleSize, 0, Math.PI * 2);
-                    this.ctx.fill();
-                    this.clearGlow();
-                });
-
-                // Reset globalAlpha before drawing auto-launchers
-                this.ctx.globalAlpha = 1;
-
-                // Draw auto-launchers
-                this.drawAutoLaunchers();
-            }
-
-            drawAutoLaunchers() {
-                const launchers = this.fireworkGame.autoLaunchers;
-                const launcherWidth = 20;
-                const launcherHeight = 40;
-
-                launchers.forEach(launcher => {
-                    const x = launcher.x - launcherWidth / 2;
-                    const y = CoordinateAPI.getLogicalHeight() - launcherHeight;
-
-                    // Draw the launcher as a rectangle
-                    this.ctx.fillStyle = '#FFFFFF';
-                    this.ctx.fillRect(x, y, launcherWidth, launcherHeight);
-
-                    // Optional: Add details to the launcher (e.g., lines or gradients)
-                    this.ctx.strokeStyle = '#000000';
-                    this.ctx.lineWidth = 2;
-                    this.ctx.strokeRect(x, y, launcherWidth, launcherHeight);
-                });
-            }
-
-            loop() {
-                if (!this.isPaused) {
-                    const currentTime = performance.now();
-                    const deltaTime = (currentTime - this.lastTime) / 1000;
-                    this.lastTime = currentTime;
-
-                    this.update(deltaTime);
-                    this.render();
                 }
-                requestAnimationFrame(() => this.loop());
+
+                // Set position attribute
+                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+                const particleSystem = new THREE.Points(geometry, material);
+                scene.add(particleSystem);
+
+                return {
+                    particleSystem: particleSystem,
+                    velocities: velocities,
+                    gravities: gravities,
+                    lifetimes: lifetimes,
+                    initialLifetime: recipe.lifetime,
+                    trailEffect: recipe.trailEffect
+                };
             }
         }
 
         // Initialize game when DOM is loaded
         document.addEventListener('DOMContentLoaded', () => {
             window.game = new FireworkGame();
+
+            // Restore visual auto-launchers
+            if (game.autoLaunchers.length > 0) {
+                game.autoLaunchers.forEach(launcher => {
+                    game.createAutoLauncherMesh(launcher.x);
+                });
+            }
         });
     </script>
 </body>
